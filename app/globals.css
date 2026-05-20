@@ -316,6 +316,7 @@ input, select, textarea { font-size: 16px; }
 .badge.ready { background: var(--status-ready-bg); color: var(--status-ready-fg); }
 .badge.sent { background: var(--status-sent-bg); color: var(--status-sent-fg); }
 .badge.paid { background: var(--status-paid-bg); color: var(--status-paid-fg); }
+.badge.accepted { background: var(--status-paid-bg); color: var(--status-paid-fg); }
 .badge.synced { background: var(--status-synced-bg); color: var(--status-synced-fg); }
 .badge.error { background: var(--status-error-bg); color: var(--status-error-fg); }
 
@@ -462,6 +463,12 @@ input, select, textarea { font-size: 16px; }
   cursor: pointer; border: none; font-family: inherit;
 }
 .tbd-toggle.off { background: var(--cream-200); color: var(--stone-500); }
+
+/* Hide on devices without a touch/coarse pointer (i.e. desktop with mouse). */
+.touch-only { display: none !important; }
+@media (any-pointer: coarse) {
+  .touch-only { display: inline-flex !important; }
+}
 
 /* Auth / landing pages */
 .center-stage {

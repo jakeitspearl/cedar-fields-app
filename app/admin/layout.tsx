@@ -1,9 +1,12 @@
+import { redirect } from 'next/navigation'
 import { Sidebar, ADMIN_NAV } from '@/components/Sidebar'
 import { MobileTabBar } from '@/components/MobileTabBar'
 import { getSessionProfile } from '@/lib/supabase/profile'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const profile = await getSessionProfile()
+  // Admin pages are owner-only. Workers get bounced to the worker dashboard.
+  if (profile && profile.role !== 'owner') redirect('/worker')
   const user = profile
     ? { name: profile.fullName, role: profile.role === 'owner' ? 'Owner' : 'Crew', authenticated: true }
     : { name: 'Demo', role: 'Owner' }

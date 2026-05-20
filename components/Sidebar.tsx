@@ -13,11 +13,11 @@ export const ADMIN_NAV: NavItem[] = [
   { id: 'clients', label: 'Clients', href: '/admin/clients', icon: 'clients' },
   { id: 'invoices', label: 'Invoices', href: '/admin/invoices', icon: 'invoices' },
   { id: 'receipts', label: 'Receipts', href: '/admin/receipts', icon: 'receipts' },
+  { id: 'team', label: 'Team', href: '/admin/team', icon: 'team' },
 ]
 
 export const WORKER_NAV: NavItem[] = [
   { id: 'today', label: 'Today', href: '/worker', icon: 'jobs' },
-  { id: 'log', label: 'Log Expense', href: '/worker/log', icon: 'receipts' },
   { id: 'history', label: 'My Week', href: '/worker/history', icon: 'estimate' },
 ]
 

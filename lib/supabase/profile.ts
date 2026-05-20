@@ -5,6 +5,7 @@ export type SessionProfile = {
   companyId: string
   role: 'owner' | 'worker'
   fullName: string
+  username: string | null
   companyName: string
 }
 
@@ -17,7 +18,7 @@ export async function getSessionProfile(): Promise<SessionProfile | null> {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, company_id, role, full_name, companies(name)')
+    .select('id, company_id, role, full_name, username, companies(name)')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -30,6 +31,7 @@ export async function getSessionProfile(): Promise<SessionProfile | null> {
     companyId: data.company_id,
     role: data.role,
     fullName: data.full_name,
+    username: data.username ?? null,
     companyName: company?.name ?? 'Cedar Fields',
   }
 }

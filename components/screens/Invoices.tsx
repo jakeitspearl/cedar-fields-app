@@ -19,13 +19,15 @@ export function InvoicesScreen({
   onOpenInvoice,
   onNew,
   onOpenQB,
+  invoices,
 }: {
   qbConnected: boolean
   onOpenInvoice: (inv: Invoice) => void
   onNew: () => void
   onOpenQB: () => void
+  invoices?: Invoice[]
 }) {
-  const invs = DATA.invoices
+  const invs = invoices ?? DATA.invoices
   return (
     <>
       <TopBar

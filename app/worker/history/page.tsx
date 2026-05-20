@@ -1,84 +1,160 @@
-'use client'
+import { createClient } from '@/lib/supabase/server'
+import { getSessionProfile } from '@/lib/supabase/profile'
+import { WorkerHistoryClient, type HistoryEntry, type ScheduleItem } from './page.client'
 
-import { TopBar } from '@/components/Shared'
-import { money } from '@/lib/utils'
+function startOfWeekISO(): string {
+  const d = new Date()
+  const day = d.getDay()
+  const diff = (day + 6) % 7
+  d.setDate(d.getDate() - diff)
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+function endOfWeekISO(): string {
+  const d = new Date()
+  const day = d.getDay()
+  const diff = (day + 6) % 7
+  d.setDate(d.getDate() - diff + 7)
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
 
-const weekEntries = [
-  { day: 'Mon Apr 21', client: 'Johnson Property', hrs: 8, expenses: 384.22, notes: 'Retaining wall — base course' },
-  { day: 'Mon Apr 21', client: 'Mike Delgado', hrs: 0, expenses: 42.0, notes: 'Dump fee — privet debris' },
-  { day: 'Tue Apr 22', client: 'Johnson Property', hrs: 8, expenses: 1248.0, notes: 'Allan Block delivery + 2 courses' },
-  { day: 'Wed Apr 23', client: 'Johnson Property', hrs: 2.5, expenses: 0, notes: 'Setup, then rain' },
-]
+async function loadHistory() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return null
+  const profile = await getSessionProfile()
+  if (!profile) return null
+  const supabase = await createClient()
 
-export default function WorkerHistory() {
-  const totalHrs = weekEntries.reduce((s, e) => s + e.hrs, 0)
-  const totalExp = weekEntries.reduce((s, e) => s + e.expenses, 0)
-  return (
-    <>
-      <TopBar title="My Week" sub="Apr 21 — Apr 27" />
+  const since = startOfWeekISO()
+  const until = endOfWeekISO()
+  const weekStart = since.slice(0, 10)
+  const weekEnd = new Date(new Date(until).getTime() - 86400000).toISOString().slice(0, 10)
+
+  const [entriesRes, assignRes] = await Promise.all([
+    supabase
+      .from('time_entries')
+      .select('id, started_at, hours, notes, job_id, client_id, jobs(service), clients(name)')
+      .eq('worker_id', profile.userId)
+      .gte('started_at', since)
+      .lt('started_at', until)
+      .order('started_at', { ascending: false }),
+    supabase
+      .from('job_workers')
+      .select('jobs(id, kind, service, scheduled_date, next_date, frequency, notes, clients(id, name))')
+      .eq('worker_id', profile.userId),
+  ])
+
+  type EntryRow = {
+    id: string
+    started_at: string
+    hours: number | null
+    notes: string | null
+    job_id: string | null
+    client_id: string | null
+    jobs: { service: string } | { service: string }[] | null
+    clients: { name: string } | { name: string }[] | null
+  }
+  const entries: HistoryEntry[] = ((entriesRes.data ?? []) as EntryRow[]).map((r) => {
+    const job = Array.isArray(r.jobs) ? r.jobs[0] : r.jobs
+    const client = Array.isArray(r.clients) ? r.clients[0] : r.clients
+    return {
+      id: r.id,
+      hours: Number(r.hours ?? 0),
+      notes: r.notes ?? '',
+      service: job?.service ?? '',
+      clientName: client?.name ?? '—',
+      startedAt: r.started_at,
+      jobId: r.job_id,
+    }
+  })
+
+  // Build a Set of (jobId-day) markers for jobs already logged this week —
+  // used to flag "✓ Logged" on schedule cards.
+  const loggedByDay = new Set<string>()
+  for (const e of entries) {
+    if (e.jobId) loggedByDay.add(`${e.jobId}|${e.startedAt.slice(0, 10)}`)
+  }
+  const loggedJobIds = new Set(entries.map((e) => e.jobId).filter((id): id is string => Boolean(id)))
+
+  type AssignmentRow = {
+    jobs:
+      | {
+          id: string
+          kind: 'onetime' | 'recurring'
+          service: string
+          scheduled_date: string | null
+          next_date: string | null
+          frequency: string | null
+          notes: string | null
+          clients: { id: string; name: string } | { id: string; name: string }[] | null
+        }
+      | {
+          id: string
+          kind: 'onetime' | 'recurring'
+          service: string
+          scheduled_date: string | null
+          next_date: string | null
+          frequency: string | null
+          notes: string | null
+          clients: { id: string; name: string } | { id: string; name: string }[] | null
+        }[]
+      | null
+  }
+  const schedule: ScheduleItem[] = []
+  for (const a of (assignRes.data ?? []) as AssignmentRow[]) {
+    const j = Array.isArray(a.jobs) ? a.jobs[0] : a.jobs
+    if (!j) continue
+    const client = Array.isArray(j.clients) ? j.clients[0] : j.clients
+    if (j.kind === 'onetime') {
+      if (!j.scheduled_date) continue
+      if (j.scheduled_date < weekStart || j.scheduled_date > weekEnd) continue
+      schedule.push({
+        id: j.id,
+        kind: 'onetime',
+        clientName: client?.name ?? '—',
+        service: j.service,
+        notes: j.notes ?? '',
+        scheduledDate: j.scheduled_date,
+        frequency: null,
+        loggedThisWeek: loggedByDay.has(`${j.id}|${j.scheduled_date}`) || loggedJobIds.has(j.id),
+      })
+    } else {
+      schedule.push({
+        id: j.id,
+        kind: 'recurring',
+        clientName: client?.name ?? '—',
+        service: j.service,
+        notes: j.notes ?? '',
+        scheduledDate: null,
+        frequency: j.frequency ?? '',
+        loggedThisWeek: loggedJobIds.has(j.id),
+      })
+    }
+  }
+
+  return {
+    entries,
+    schedule,
+    weekStart,
+    weekEnd,
+  }
+}
+
+export default async function WorkerHistory() {
+  const data = await loadHistory()
+  if (!data) {
+    return (
       <div className="screen-body">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
-          <div className="card" style={{ cursor: 'default', padding: 14 }}>
-            <div style={{ fontSize: 12, color: 'var(--stone-500)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.05 }}>
-              Hours
-            </div>
-            <div
-              style={{
-                fontSize: 30, fontWeight: 700, color: 'var(--forest-800)',
-                fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
-              }}
-            >
-              {totalHrs}
-            </div>
-          </div>
-          <div className="card" style={{ cursor: 'default', padding: 14 }}>
-            <div style={{ fontSize: 12, color: 'var(--stone-500)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.05 }}>
-              Expenses
-            </div>
-            <div
-              style={{
-                fontSize: 30, fontWeight: 700, color: 'var(--cedar-700)',
-                fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
-              }}
-            >
-              {money(totalExp, 0)}
-            </div>
-          </div>
-        </div>
-
-        <div className="section-h">Entries</div>
-        {weekEntries.map((e, i) => (
-          <div key={i} className="card" style={{ cursor: 'default', padding: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{e.client}</div>
-              <div style={{ fontSize: 12, color: 'var(--stone-500)' }}>{e.day}</div>
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--stone-600)', marginTop: 4 }}>{e.notes}</div>
-            <div
-              style={{
-                display: 'flex',
-                gap: 8,
-                marginTop: 10,
-                paddingTop: 10,
-                borderTop: '1px solid var(--cream-200)',
-                fontSize: 13,
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {e.hrs > 0 && (
-                <span style={{ color: 'var(--forest-700)', fontWeight: 700 }}>
-                  {e.hrs} hrs
-                </span>
-              )}
-              {e.expenses > 0 && (
-                <span style={{ color: 'var(--cedar-700)', fontWeight: 700 }}>
-                  {money(e.expenses)}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
+        <div className="card" style={{ padding: 18 }}>Sign in required.</div>
       </div>
-    </>
+    )
+  }
+  return (
+    <WorkerHistoryClient
+      entries={data.entries}
+      schedule={data.schedule}
+      weekStart={data.weekStart}
+      weekEnd={data.weekEnd}
+    />
   )
 }

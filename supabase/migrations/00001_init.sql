@@ -189,99 +189,99 @@ alter table receipts enable row level security;
 alter table time_entries enable row level security;
 
 -- Helper: current user's company_id
-create or replace function auth.company_id() returns uuid
-  language sql stable as $$
+create or replace function public.company_id() returns uuid
+  language sql stable security definer set search_path = public as $$
   select company_id from profiles where id = auth.uid()
 $$;
 
 -- Helper: current user is owner of their company
-create or replace function auth.is_owner() returns boolean
-  language sql stable as $$
+create or replace function public.is_owner() returns boolean
+  language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where id = auth.uid() and role = 'owner')
 $$;
 
 -- Profiles: users see their own row; owners see everyone in their company
 create policy "profiles self or company" on profiles
-  for select using (id = auth.uid() or company_id = auth.company_id());
+  for select using (id = auth.uid() or company_id = public.company_id());
 create policy "profiles owner write" on profiles
-  for all using (auth.is_owner() and company_id = auth.company_id());
+  for all using (public.is_owner() and company_id = public.company_id());
 
 -- Companies: owners can read+update; everyone in the company can read their company
 create policy "companies same" on companies
-  for select using (id = auth.company_id());
+  for select using (id = public.company_id());
 create policy "companies owner update" on companies
-  for update using (auth.is_owner() and id = auth.company_id());
+  for update using (public.is_owner() and id = public.company_id());
 
 -- Generic per-company tables: anyone in company can read; only owner can write (workers exempted below)
 create policy "clients read" on clients
-  for select using (company_id = auth.company_id());
+  for select using (company_id = public.company_id());
 create policy "clients owner write" on clients
-  for all using (auth.is_owner() and company_id = auth.company_id());
+  for all using (public.is_owner() and company_id = public.company_id());
 
 create policy "estimates read" on estimates
-  for select using (company_id = auth.company_id());
+  for select using (company_id = public.company_id());
 create policy "estimates owner write" on estimates
-  for all using (auth.is_owner() and company_id = auth.company_id());
+  for all using (public.is_owner() and company_id = public.company_id());
 
 create policy "estimate_materials rw via estimate" on estimate_materials
   for all using (
-    exists (select 1 from estimates e where e.id = estimate_id and e.company_id = auth.company_id())
-    and (auth.is_owner() or false)
+    exists (select 1 from estimates e where e.id = estimate_id and e.company_id = public.company_id())
+    and (public.is_owner() or false)
   );
 create policy "estimate_materials read" on estimate_materials
   for select using (
-    exists (select 1 from estimates e where e.id = estimate_id and e.company_id = auth.company_id())
+    exists (select 1 from estimates e where e.id = estimate_id and e.company_id = public.company_id())
   );
 
 create policy "jobs read" on jobs
-  for select using (company_id = auth.company_id());
+  for select using (company_id = public.company_id());
 create policy "jobs owner write" on jobs
-  for all using (auth.is_owner() and company_id = auth.company_id());
+  for all using (public.is_owner() and company_id = public.company_id());
 
 create policy "job_workers read" on job_workers
   for select using (
-    exists (select 1 from jobs j where j.id = job_id and j.company_id = auth.company_id())
+    exists (select 1 from jobs j where j.id = job_id and j.company_id = public.company_id())
   );
 create policy "job_workers owner write" on job_workers
   for all using (
-    auth.is_owner()
-    and exists (select 1 from jobs j where j.id = job_id and j.company_id = auth.company_id())
+    public.is_owner()
+    and exists (select 1 from jobs j where j.id = job_id and j.company_id = public.company_id())
   );
 
 create policy "invoices owner only" on invoices
-  for all using (auth.is_owner() and company_id = auth.company_id());
+  for all using (public.is_owner() and company_id = public.company_id());
 
 -- Receipts & time_entries: workers can read/write THEIR OWN, owners can read/write all in company
 create policy "receipts read" on receipts
   for select using (
-    company_id = auth.company_id()
-    and (auth.is_owner() or worker_id = auth.uid())
+    company_id = public.company_id()
+    and (public.is_owner() or worker_id = auth.uid())
   );
 create policy "receipts self insert" on receipts
   for insert with check (
-    company_id = auth.company_id()
-    and (auth.is_owner() or worker_id = auth.uid())
+    company_id = public.company_id()
+    and (public.is_owner() or worker_id = auth.uid())
   );
 create policy "receipts self update" on receipts
   for update using (
-    company_id = auth.company_id()
-    and (auth.is_owner() or worker_id = auth.uid())
+    company_id = public.company_id()
+    and (public.is_owner() or worker_id = auth.uid())
   );
 
 create policy "time_entries read" on time_entries
   for select using (
-    company_id = auth.company_id()
-    and (auth.is_owner() or worker_id = auth.uid())
+    company_id = public.company_id()
+    and (public.is_owner() or worker_id = auth.uid())
   );
 create policy "time_entries self insert" on time_entries
   for insert with check (
-    company_id = auth.company_id()
+    company_id = public.company_id()
     and worker_id = auth.uid()
   );
 create policy "time_entries self update" on time_entries
   for update using (
-    company_id = auth.company_id()
-    and (auth.is_owner() or worker_id = auth.uid())
+    company_id = public.company_id()
+    and (public.is_owner() or worker_id = auth.uid())
   );
 
 -- ─────────────────────────── Storage buckets ───────────────────────────

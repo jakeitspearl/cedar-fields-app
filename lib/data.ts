@@ -1,4 +1,5 @@
 export type Material = {
+  id?: string
   name: string
   qty: number
   price: number
@@ -12,7 +13,7 @@ export type Estimate = {
   client: string
   job: string
   date: string
-  status: 'draft' | 'pending' | 'ready' | 'sent'
+  status: 'draft' | 'pending' | 'ready' | 'sent' | 'accepted'
   statusLabel: string
   laborHrs: number
   yardage: number
@@ -36,23 +37,32 @@ export type Client = {
 
 export type RecurringJob = {
   id: string
+  clientId?: string
   client: string
   service: string
   price: number
   frequency: string
-  next: string
+  next: string            // formatted display ("Apr 28")
+  nextDate?: string       // ISO YYYY-MM-DD for editing
+  workerIds?: string[]
+  workers?: string[]      // worker names for display (optional)
+  estimateId?: string
 }
 
 export type OneTimeJob = {
   id: string
+  clientId?: string
   client: string
   type: string
   workers: string[]
+  workerIds?: string[]
   status: 'scheduled' | 'in-progress' | 'complete'
   statusLabel: string
-  date: string
+  date: string             // formatted display ("Apr 26")
+  scheduledDate?: string   // ISO YYYY-MM-DD for editing
   notes: string
   price: number
+  estimateId?: string
 }
 
 export type Invoice = {
@@ -70,6 +80,21 @@ export type Invoice = {
   disposal?: number
   materials?: Material[]
   fromEstimate?: string
+  fromJob?: string
+  // Real (DB-backed) line items + tax flag
+  lineItems?: InvoiceLineItem[]
+  applyTax?: boolean
+  notes?: string
+}
+
+export type InvoiceLineItem = {
+  id?: string
+  name: string
+  qty: number
+  price: number          // unit price in dollars
+  kind: 'labor' | 'material' | 'disposal' | 'custom'
+  costCents?: number     // owner's cost basis (materials only)
+  markupBps?: number     // markup applied (e.g. 3000 = 30%)
 }
 
 export type Receipt = {

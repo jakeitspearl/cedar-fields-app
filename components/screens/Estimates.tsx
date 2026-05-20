@@ -5,6 +5,7 @@ import { Icon } from '@/lib/icons'
 import { DATA, estimateTotals, type Client, type Estimate } from '@/lib/data'
 import { money } from '@/lib/utils'
 import { Badge, TopBar } from '../Shared'
+import { NumberInput } from '../NumberInput'
 
 export function EstimateCard({ est, onClick }: { est: Estimate; onClick: () => void }) {
   const t = estimateTotals(est)
@@ -28,18 +29,21 @@ export function EstimateCard({ est, onClick }: { est: Estimate; onClick: () => v
 export function EstimatesScreen({
   onOpenEstimate,
   onNew,
+  estimates,
 }: {
   onOpenEstimate: (est: Estimate) => void
   onNew: () => void
+  estimates?: Estimate[]
 }) {
-  const ests = DATA.estimates
-  const byStatus: Record<string, Estimate[]> = { draft: [], pending: [], ready: [], sent: [] }
+  const ests = estimates ?? DATA.estimates
+  const byStatus: Record<string, Estimate[]> = { draft: [], pending: [], ready: [], sent: [], accepted: [] }
   ests.forEach((e) => byStatus[e.status]?.push(e))
   const order = [
+    { key: 'accepted', title: 'Accepted' },
     { key: 'ready', title: 'Ready to Send' },
+    { key: 'sent', title: 'Sent' },
     { key: 'pending', title: 'Pending Materials' },
     { key: 'draft', title: 'Drafts' },
-    { key: 'sent', title: 'Sent' },
   ] as const
 
   return (
@@ -67,14 +71,61 @@ export function EstimatesScreen({
   )
 }
 
-export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClose: () => void }) {
+export type EstimatePatch = Partial<
+  Pick<Estimate, 'clientId' | 'client' | 'job' | 'status' | 'statusLabel' | 'laborHrs' | 'yardage' | 'disposal'>
+>
+
+export function EstimateDetail({
+  est: initial,
+  onClose,
+  attachmentsSlot,
+  materialsSlot,
+  onPatch,
+  clients: clientsProp,
+  allowAddClient = true,
+  onDownloadPDF,
+  onSendEmail,
+  onConvertToJob,
+}: {
+  est: Estimate
+  onClose: () => void
+  attachmentsSlot?: React.ReactNode
+  materialsSlot?: React.ReactNode
+  onPatch?: (patch: EstimatePatch) => Promise<{ ok: boolean; error?: string } | void>
+  clients?: Client[]
+  allowAddClient?: boolean
+  onDownloadPDF?: (current: Estimate) => Promise<void> | void
+  onSendEmail?: (current: Estimate) => Promise<void> | void
+  onConvertToJob?: (current: Estimate) => void
+}) {
   const [est, setEst] = useState<Estimate>(initial)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', phone: '', email: '', address: '' })
-  const [clients, setClients] = useState<Client[]>(DATA.clients)
+  const [clients, setClients] = useState<Client[]>(clientsProp ?? DATA.clients)
+  const [statusOpen, setStatusOpen] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const t = estimateTotals(est)
   const clientObj = clients.find((c) => c.id === est.clientId) || ({ name: est.client } as Partial<Client>)
+
+  async function patch(p: EstimatePatch) {
+    setEst((prev) => ({ ...prev, ...p }))
+    if (!onPatch) return
+    const res = await onPatch(p)
+    if (res && 'ok' in res && !res.ok) {
+      setSaveError(res.error ?? 'Save failed')
+    } else if (saveError) {
+      setSaveError(null)
+    }
+  }
+
+  const STATUS_OPTIONS: { value: Estimate['status']; label: string }[] = [
+    { value: 'draft', label: 'Draft' },
+    { value: 'pending', label: 'Pending Materials' },
+    { value: 'ready', label: 'Ready to Send' },
+    { value: 'sent', label: 'Sent' },
+    { value: 'accepted', label: 'Accepted' },
+  ]
 
   const saveNewClient = () => {
     if (!newClient.name.trim()) return
@@ -109,6 +160,9 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
   const updateHrs = (v: string) => setEst((p) => ({ ...p, laborHrs: Math.max(0, parseFloat(v) || 0) }))
   const updateYrd = (v: string) => setEst((p) => ({ ...p, yardage: Math.max(0, parseFloat(v) || 0) }))
   const updateDisp = (v: string) => setEst((p) => ({ ...p, disposal: Math.max(0, parseFloat(v) || 0) }))
+  const commitHrs = () => patch({ laborHrs: est.laborHrs })
+  const commitYrd = () => patch({ yardage: est.yardage })
+  const commitDisp = () => patch({ disposal: est.disposal })
 
   return (
     <>
@@ -116,8 +170,86 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
         title="Estimate"
         sub={`#${est.id.toUpperCase()} · ${est.date}`}
         onBack={onClose}
-        right={<Badge status={est.status}>{est.statusLabel}</Badge>}
+        right={
+          onPatch ? (
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setStatusOpen((s) => !s)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+                aria-label="Change status"
+              >
+                <Badge status={est.status}>{est.statusLabel} ▾</Badge>
+              </button>
+              {statusOpen && (
+                <>
+                  <div
+                    onClick={() => setStatusOpen(false)}
+                    style={{ position: 'fixed', inset: 0, zIndex: 30 }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 6px)',
+                      right: 0,
+                      zIndex: 31,
+                      background: '#fff',
+                      border: '1px solid var(--cream-200)',
+                      borderRadius: 12,
+                      boxShadow: '0 12px 32px rgba(18,39,27,0.12)',
+                      padding: 6,
+                      minWidth: 200,
+                    }}
+                  >
+                    {STATUS_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={async () => {
+                          setStatusOpen(false)
+                          if (opt.value === est.status) return
+                          await patch({ status: opt.value, statusLabel: opt.label })
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: 'none',
+                          background: opt.value === est.status ? 'var(--cream-100)' : 'transparent',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          fontSize: 14,
+                          borderRadius: 8,
+                          color: 'var(--ink-900)',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Badge status={opt.value}>{opt.label}</Badge>
+                        </span>
+                        {opt.value === est.status && <Icon.check width="16" height="16" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <Badge status={est.status}>{est.statusLabel}</Badge>
+          )
+        }
       />
+      {saveError && (
+        <div className="banner err" style={{ marginBottom: 10 }}>
+          <div>Save failed: {saveError}</div>
+        </div>
+      )}
       <div className="screen-body" style={{ paddingBottom: 10 }}>
         {t.hasTBD && (
           <div className="banner warn">
@@ -180,7 +312,11 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
 
         <div className="field">
           <label>Job Description</label>
-          <textarea defaultValue={est.job} />
+          <textarea
+            value={est.job}
+            onChange={(e) => setEst((p) => ({ ...p, job: e.target.value }))}
+            onBlur={onPatch ? () => patch({ job: est.job }) : undefined}
+          />
         </div>
 
         <div className="section-h" style={{ marginTop: 18 }}>
@@ -196,10 +332,10 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
             <div className="row">
               <div>
                 <div style={{ fontSize: 11, color: 'var(--stone-500)', marginBottom: 4, fontWeight: 600 }}>HOURS</div>
-                <input
-                  type="number"
+                <NumberInput
                   value={est.laborHrs}
-                  onChange={(e) => updateHrs(e.target.value)}
+                  onChange={(n) => setEst((p) => ({ ...p, laborHrs: Math.max(0, n) }))}
+                  onBlur={onPatch ? commitHrs : undefined}
                   style={{
                     width: '100%',
                     padding: '10px 12px',
@@ -233,10 +369,10 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
               <span className="name">Yardage</span>
               <span style={{ fontSize: 12, color: 'var(--stone-500)' }}>tracking only</span>
             </div>
-            <input
-              type="number"
+            <NumberInput
               value={est.yardage}
-              onChange={(e) => updateYrd(e.target.value)}
+              onChange={(n) => setEst((p) => ({ ...p, yardage: Math.max(0, n) }))}
+              onBlur={onPatch ? commitYrd : undefined}
               placeholder="Yards delivered"
               style={{
                 padding: '10px 12px',
@@ -254,10 +390,10 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
               <span className="amt">{money(t.disposal)}</span>
             </div>
             <div className="row">
-              <input
-                type="number"
+              <NumberInput
                 value={est.disposal}
-                onChange={(e) => updateDisp(e.target.value)}
+                onChange={(n) => setEst((p) => ({ ...p, disposal: Math.max(0, n) }))}
+                onBlur={onPatch ? commitDisp : undefined}
                 placeholder="Yards"
                 style={{
                   width: '100%',
@@ -284,59 +420,67 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
           </div>
         </div>
 
-        <div className="section-h" style={{ marginTop: 18 }}>
-          <span>Materials</span>
-          <button
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--forest-700)',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: 'pointer',
-              textTransform: 'none',
-              letterSpacing: 0,
-            }}
-          >
-            + Add item
-          </button>
-        </div>
-        <div className="card" style={{ cursor: 'default', padding: '4px 14px' }}>
-          {(est.materials || []).map((m, i) => (
-            <div key={i} className="line-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div className="name" style={{ marginBottom: 2 }}>
-                    {m.name}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--stone-500)', fontVariantNumeric: 'tabular-nums' }}>
-                    qty {m.qty} ·{' '}
-                    {m.tbd ? (
-                      <span style={{ color: 'var(--cedar-700)', fontWeight: 600 }}>pricing TBD</span>
-                    ) : (
-                      `${money(m.price)} ea`
-                    )}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span className="amt">{m.tbd ? '—' : money(m.qty * m.price)}</span>
-                </div>
-              </div>
+        {materialsSlot ? (
+          materialsSlot
+        ) : (
+          <>
+            <div className="section-h" style={{ marginTop: 18 }}>
+              <span>Materials</span>
               <button
-                className={'tbd-toggle' + (m.tbd ? '' : ' off')}
-                onClick={() => toggleTBD(i)}
-                style={{ alignSelf: 'flex-start' }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--forest-700)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textTransform: 'none',
+                  letterSpacing: 0,
+                }}
               >
-                {m.tbd ? '⚠ TBD — Pending Nursery' : '✓ Price confirmed'}
+                + Add item
               </button>
             </div>
-          ))}
-          {(est.materials || []).length === 0 && (
-            <div style={{ padding: '14px 0', fontSize: 13, color: 'var(--stone-500)', textAlign: 'center' }}>
-              No materials
+            <div className="card" style={{ cursor: 'default', padding: '4px 14px' }}>
+              {(est.materials || []).map((m, i) => (
+                <div key={i} className="line-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="name" style={{ marginBottom: 2 }}>
+                        {m.name}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--stone-500)', fontVariantNumeric: 'tabular-nums' }}>
+                        qty {m.qty} ·{' '}
+                        {m.tbd ? (
+                          <span style={{ color: 'var(--cedar-700)', fontWeight: 600 }}>pricing TBD</span>
+                        ) : (
+                          `${money(m.price)} ea`
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="amt">{m.tbd ? '—' : money(m.qty * m.price)}</span>
+                    </div>
+                  </div>
+                  <button
+                    className={'tbd-toggle' + (m.tbd ? '' : ' off')}
+                    onClick={() => toggleTBD(i)}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {m.tbd ? '⚠ TBD — Pending Nursery' : '✓ Price confirmed'}
+                  </button>
+                </div>
+              ))}
+              {(est.materials || []).length === 0 && (
+                <div style={{ padding: '14px 0', fontSize: 13, color: 'var(--stone-500)', textAlign: 'center' }}>
+                  No materials
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
+
+        {attachmentsSlot}
 
         {est.flatFee && (
           <div className="card" style={{ cursor: 'default', marginTop: 10, padding: 14, background: 'var(--sage-50)' }}>
@@ -374,11 +518,41 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
           {t.hasTBD && <div style={{ fontSize: 11, marginTop: 6, opacity: 0.7 }}>Excludes TBD materials</div>}
         </div>
 
+        {!t.hasTBD && est.status === 'sent' && onPatch && (
+          <button
+            onClick={() => patch({ status: 'accepted', statusLabel: 'Accepted' })}
+            style={primaryActionStyle('var(--forest-700)')}
+          >
+            <Icon.check width="18" height="18" w={2.2} /> Mark as Accepted
+          </button>
+        )}
+
+        {!t.hasTBD && est.status === 'accepted' && onConvertToJob && (
+          <button
+            onClick={() => onConvertToJob(est)}
+            style={primaryActionStyle('var(--cedar-600)')}
+          >
+            <Icon.check width="18" height="18" w={2.2} /> Convert to Job
+          </button>
+        )}
+
         <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-          <button className="btn btn-secondary" style={{ flex: 1 }} disabled={t.hasTBD}>
+          <button
+            className="btn btn-secondary"
+            style={{ flex: 1 }}
+            disabled={t.hasTBD || !onDownloadPDF}
+            onClick={onDownloadPDF ? () => onDownloadPDF(est) : undefined}
+            title={t.hasTBD ? 'Resolve TBD material prices first' : undefined}
+          >
             <Icon.download width="18" height="18" /> PDF
           </button>
-          <button className="btn btn-primary" style={{ flex: 1.4 }} disabled={t.hasTBD}>
+          <button
+            className="btn btn-primary"
+            style={{ flex: 1.4 }}
+            disabled={t.hasTBD || !onSendEmail}
+            onClick={onSendEmail ? () => onSendEmail(est) : undefined}
+            title={t.hasTBD ? 'Resolve TBD material prices first' : undefined}
+          >
             <Icon.send width="18" height="18" /> Send Email
           </button>
         </div>
@@ -396,6 +570,7 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
               </button>
             </div>
             <div className="sheet-body" style={{ paddingTop: 10 }}>
+              {allowAddClient && (
               <button
                 onClick={() => setAddOpen(true)}
                 style={{
@@ -436,6 +611,7 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
                 </div>
                 <Icon.chev width="16" height="16" />
               </button>
+              )}
 
               <div
                 style={{
@@ -453,7 +629,11 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
                 <button
                   key={c.id}
                   onClick={() => {
-                    setEst((p) => ({ ...p, clientId: c.id, client: c.name }))
+                    if (c.id === est.clientId) {
+                      setPickerOpen(false)
+                      return
+                    }
+                    patch({ clientId: c.id, client: c.name })
                     setPickerOpen(false)
                   }}
                   className="card"
@@ -554,4 +734,24 @@ export function EstimateDetail({ est: initial, onClose }: { est: Estimate; onClo
       )}
     </>
   )
+}
+
+function primaryActionStyle(bg: string): React.CSSProperties {
+  return {
+    marginTop: 14,
+    width: '100%',
+    padding: '14px 16px',
+    borderRadius: 14,
+    background: bg,
+    color: '#fff',
+    border: 'none',
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  }
 }

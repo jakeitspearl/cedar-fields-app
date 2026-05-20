@@ -4,10 +4,11 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { loginIdentifierToEmail } from '@/lib/worker-auth'
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -20,6 +21,7 @@ export default function LoginPage() {
     setBusy(true)
     try {
       const supabase = createClient()
+      const email = loginIdentifierToEmail(identifier)
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
       router.push('/')
@@ -52,14 +54,16 @@ export default function LoginPage() {
 
         <form onSubmit={submit}>
           <div className="field">
-            <label>Email</label>
+            <label>Email or username</label>
             <input
-              type="email"
+              type="text"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              placeholder="you@cedarfields.com"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="you@cedarfields.com or riley"
             />
           </div>
           <div className="field">
