@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 export default function SignupPage() {
   const router = useRouter()
   const [fullName, setFullName] = useState('')
+  const [companyName, setCompanyName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +27,7 @@ export default function SignupPage() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName } },
+        options: { data: { full_name: fullName, company_name: companyName.trim() } },
       })
       if (error) throw error
       if (!data.session) {
@@ -50,7 +51,7 @@ export default function SignupPage() {
           Create your owner account
         </div>
         <div style={{ fontSize: 13, color: 'var(--stone-600)', marginBottom: 24 }}>
-          Sets up Cedar Fields with demo data you can poke at
+          Sets up an empty workspace for your landscaping business
         </div>
 
         {!supabaseConfigured && (
@@ -71,6 +72,16 @@ export default function SignupPage() {
               onChange={(e) => setFullName(e.target.value)}
               autoComplete="name"
               placeholder="Shawn"
+            />
+          </div>
+          <div className="field">
+            <label>Company name</label>
+            <input
+              required
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              autoComplete="organization"
+              placeholder="e.g. Cedar Fields Landscaping"
             />
           </div>
           <div className="field">

@@ -13,9 +13,11 @@ const catColors: Record<string, string> = {
 
 export function ReceiptsScreen({
   onScan,
+  onLog,
   receipts,
 }: {
-  onScan: () => void
+  onScan?: () => void
+  onLog?: () => void
   receipts?: Receipt[]
 }) {
   const recs = receipts ?? DATA.receipts
@@ -28,7 +30,7 @@ export function ReceiptsScreen({
       />
       <div className="screen-body">
         <button
-          onClick={onScan}
+          onClick={onLog ?? onScan}
           style={{
             width: '100%',
             background: 'linear-gradient(135deg, var(--cedar-600), var(--cedar-700))',
@@ -57,11 +59,11 @@ export function ReceiptsScreen({
               flexShrink: 0,
             }}
           >
-            <Icon.camera width="26" height="26" />
+            <Icon.plus width="26" height="26" w={2.4} />
           </div>
           <div style={{ flex: 1, textAlign: 'left' }}>
-            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em' }}>Scan Receipt</div>
-            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Photo → auto-extract total & vendor</div>
+            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em' }}>Log Receipt</div>
+            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Vendor, amount, optional photo</div>
           </div>
           <Icon.chev width="18" height="18" />
         </button>

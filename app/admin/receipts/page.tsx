@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import type { Receipt } from '@/lib/data'
+import { getSessionProfile } from '@/lib/supabase/profile'
+import type { Client, Receipt } from '@/lib/data'
 import { ReceiptsPageClient } from './page.client'
 
 const catLabel: Record<string, Receipt['category']> = {
@@ -20,23 +21,26 @@ function fmtDate(s: string) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-async function loadReceipts(): Promise<Receipt[] | null> {
+async function loadReceipts(): Promise<
+  { receipts: Receipt[]; clients: Client[]; companyId: string } | null
+> {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return null
+  const profile = await getSessionProfile()
+  if (!profile) return null
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return null
 
-  const { data, error } = await supabase
-    .from('receipts')
-    .select('id, vendor, amount_cents, category, occurred_on, client_id, clients(name)')
-    .order('occurred_on', { ascending: false })
-    .limit(50)
+  const [recRes, clientsRes] = await Promise.all([
+    supabase
+      .from('receipts')
+      .select('id, vendor, amount_cents, category, occurred_on, client_id, clients(name)')
+      .order('occurred_on', { ascending: false })
+      .limit(50),
+    supabase.from('clients').select('id, name, phone, email, address, initials').order('name'),
+  ])
 
-  if (error || !data) return null
+  if (recRes.error || !recRes.data) return null
 
-  return data.map((r): Receipt => {
+  const receipts = recRes.data.map((r): Receipt => {
     const client = Array.isArray(r.clients) ? r.clients[0] : r.clients
     return {
       id: r.id,
@@ -48,9 +52,28 @@ async function loadReceipts(): Promise<Receipt[] | null> {
       color: catColor[r.category] ?? '#7b6b4e',
     }
   })
+
+  const clients: Client[] = (clientsRes.data ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    phone: c.phone ?? '',
+    email: c.email ?? '',
+    address: c.address ?? '',
+    initials: c.initials ?? c.name.slice(0, 2).toUpperCase(),
+    jobs: 0,
+    open: 0,
+  }))
+
+  return { receipts, clients, companyId: profile.companyId }
 }
 
 export default async function ReceiptsPage() {
-  const receipts = await loadReceipts()
-  return <ReceiptsPageClient receipts={receipts ?? undefined} />
+  const data = await loadReceipts()
+  return (
+    <ReceiptsPageClient
+      receipts={data?.receipts}
+      clients={data?.clients ?? []}
+      companyId={data?.companyId ?? null}
+    />
+  )
 }
